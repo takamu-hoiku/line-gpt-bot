@@ -6,8 +6,13 @@ app = Flask(__name__)
 
 LINE_ACCESS_TOKEN = os.environ.get("LINE_ACCESS_TOKEN")
 
-@app.route("/callback", methods=["POST"])
+# 👇 GET も受け取れるようにする
+@app.route("/callback", methods=["POST", "GET"])
 def callback():
+    # Verify用（GET）のときは即OKを返す
+    if request.method == "GET":
+        return "OK"
+
     body = request.get_json(force=True)
     events = body.get("events", [])
 
@@ -17,7 +22,10 @@ def callback():
             msg = event.get("message", {}).get("text", "")
 
             if reply_token:
-                reply_message(reply_token, f"せんぱいだよ😊\n届いたよ！\n\n「{msg}」って言ってくれたんだね。")
+                reply_message(
+                    reply_token,
+                    f"せんぱいだよ😊\n届いたよ！\n\n「{msg}」って言ってくれたんだね。"
+                )
 
     return "OK"
 
