@@ -29,11 +29,9 @@ SYSTEM_PROMPT = """
 で締めてください。
 """.strip()
 
-
 @app.get("/")
 def health():
     return "OK", 200
-
 
 @app.post("/callback")
 def callback():
@@ -59,14 +57,9 @@ def callback():
 
     return "OK", 200
 
-
 def ask_senpai_gpt(user_text: str) -> str:
-    # まずキーが読めてるかチェック
     if not OPENAI_API_KEY:
-        return (
-            "（設定チェック）OPENAI_API_KEY が見つからないみたい🙏\n"
-            "RenderのEnvironmentに入ってるか確認してみてね。"
-        )
+        return "（設定チェック）OPENAI_API_KEY がまだ入ってないみたい🙏 RenderのEnvironmentを確認してね。"
 
     url = "https://api.openai.com/v1/responses"
     headers = {
@@ -79,32 +72,15 @@ def ask_senpai_gpt(user_text: str) -> str:
         "input": user_text,
     }
 
-    try:
-        r = requests.post(url, headers=headers, json=payload, timeout=20)
+    r = requests.post(url, headers=headers, json=payload, timeout=20)
+    print("OpenAI status:", r.status_code, flush=True)
 
-        # ここが超重要：失敗理由をログに出す
-        print("OpenAI status:", r.status_code, flush=True)
-        if r.status_code >= 400:
-            print("OpenAI error body:", r.text, flush=True)
-            return (
-                "ごめんね、今ちょっと返事づくりでつまずいた🙏\n"
-                "もう一回だけ、いちばん伝えたい一言を送ってもらえる？"
-            )
+    if r.status_code >= 400:
+        print("OpenAI error body:", r.text, flush=True)
+        return "ごめんね、今ちょっと返事づくりでつまずいた🙏 もう一回だけ送ってもらえる？"
 
-        data = r.json()
-        text = extract_output_text(data)
-        if not text:
-            return "うんうん、話してくれてありがとう。いま一番しんどいのは、どの部分？"
-
-        return text
-
-    except requests.exceptions.RequestException as e:
-        print("OpenAI request exception:", str(e), flush=True)
-        return (
-            "ごめんね、今ちょっと通信が不安定みたい🙏\n"
-            "少しだけ時間をおいて、もう一回送ってもらえる？"
-        )
-
+    data = r.json()
+    return extract_output_text(data) or "うんうん、話してくれてありがとう。いま一番しんどいのは、どの部分？"
 
 def extract_output_text(data: dict) -> str:
     for item in data.get("output", []):
@@ -113,7 +89,6 @@ def extract_output_text(data: dict) -> str:
                 if c.get("type") == "output_text":
                     return c.get("text", "")
     return ""
-
 
 def reply_message(reply_token: str, text: str) -> None:
     if not LINE_ACCESS_TOKEN:
@@ -134,7 +109,6 @@ def reply_message(reply_token: str, text: str) -> None:
     print("LINE reply status:", res.status_code, flush=True)
     if res.status_code >= 400:
         print("LINE reply body:", res.text, flush=True)
-
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
