@@ -1,17 +1,13 @@
 from flask import Flask, request
 import os
 import requests
-from openai import OpenAI
 
 app = Flask(__name__)
 
-# 環境変数
-LINE_ACCESS_TOKEN = os.environ.get("LINE_ACCESS_TOKEN")
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+LINE_ACCESS_TOKEN = os.environ.get("LINE_ACCESS_TOKEN", "")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4.1-mini")
 
-client = OpenAI(api_key=OPENAI_API_KEY)
-
-# せんぱいGPTの人格（systemプロンプト）
 SYSTEM_PROMPT = """
 あなたは「優しくて頼れる保育士の先輩」です。
 後輩や同僚が本音をこぼせるように、あたたかく、柔らかく、話しやすい雰囲気で対応してください。
@@ -31,51 +27,115 @@ SYSTEM_PROMPT = """
 最後は必ず
 「話してくれてありがとう。またいつでも来てね。」
 で締めてください。
-"""
+""".strip()
 
-@app.route("/callback", methods=["POST"])
+
+@app.get("/")
+def health():
+    return "OK", 200
+
+
+@app.post("/callback")
 def callback():
-    body = request.get_json(force=True)
+    body = request.get_json(silent=True) or {}
     events = body.get("events", [])
 
     for event in events:
-        if event.get("type") == "message":
-            reply_token = event.get("replyToken")
-            user_message = event.get("message", {}).get("text", "")
+        if event.get("type") != "message":
+            continue
 
-            if reply_token and user_message:
-                ai_reply = ask_senpai_gpt(user_message)
-                reply_message(reply_token, ai_reply)
+        msg = event.get("message", {})
+        if msg.get("type") != "text":
+            continue
 
-    return "OK"
+        reply_token = event.get("replyToken")
+        user_text = (msg.get("text") or "").strip()
 
-def ask_senpai_gpt(user_text):
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_text}
-        ],
-        temperature=0.7,
-    )
-    return response.choices[0].message.content
+        if not reply_token or not user_text:
+            continue
 
-def reply_message(reply_token, text):
+        ai_reply = ask_senpai_gpt(user_text)
+        reply_message(reply_token, ai_reply)
+
+    return "OK", 200
+
+
+def ask_senpai_gpt(user_text: str) -> str:
+    # まずキーが読めてるかチェック
+    if not OPENAI_API_KEY:
+        return (
+            "（設定チェック）OPENAI_API_KEY が見つからないみたい🙏\n"
+            "RenderのEnvironmentに入ってるか確認してみてね。"
+        )
+
+    url = "https://api.openai.com/v1/responses"
+    headers = {
+        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": OPENAI_MODEL,
+        "instructions": SYSTEM_PROMPT,
+        "input": user_text,
+    }
+
+    try:
+        r = requests.post(url, headers=headers, json=payload, timeout=20)
+
+        # ここが超重要：失敗理由をログに出す
+        print("OpenAI status:", r.status_code, flush=True)
+        if r.status_code >= 400:
+            print("OpenAI error body:", r.text, flush=True)
+            return (
+                "ごめんね、今ちょっと返事づくりでつまずいた🙏\n"
+                "もう一回だけ、いちばん伝えたい一言を送ってもらえる？"
+            )
+
+        data = r.json()
+        text = extract_output_text(data)
+        if not text:
+            return "うんうん、話してくれてありがとう。いま一番しんどいのは、どの部分？"
+
+        return text
+
+    except requests.exceptions.RequestException as e:
+        print("OpenAI request exception:", str(e), flush=True)
+        return (
+            "ごめんね、今ちょっと通信が不安定みたい🙏\n"
+            "少しだけ時間をおいて、もう一回送ってもらえる？"
+        )
+
+
+def extract_output_text(data: dict) -> str:
+    for item in data.get("output", []):
+        if item.get("type") == "message":
+            for c in item.get("content", []):
+                if c.get("type") == "output_text":
+                    return c.get("text", "")
+    return ""
+
+
+def reply_message(reply_token: str, text: str) -> None:
+    if not LINE_ACCESS_TOKEN:
+        print("LINE_ACCESS_TOKEN is empty", flush=True)
+        return
+
     url = "https://api.line.me/v2/bot/message/reply"
     headers = {
         "Authorization": f"Bearer {LINE_ACCESS_TOKEN}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
-    data = {
+    payload = {
         "replyToken": reply_token,
-        "messages": [
-            {"type": "text", "text": text}
-        ]
+        "messages": [{"type": "text", "text": text}],
     }
 
-    res = requests.post(url, headers=headers, json=data)
-    print("LINE reply status:", res.status_code)
+    res = requests.post(url, headers=headers, json=payload, timeout=10)
+    print("LINE reply status:", res.status_code, flush=True)
+    if res.status_code >= 400:
+        print("LINE reply body:", res.text, flush=True)
+
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
+    port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port)
