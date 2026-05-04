@@ -77,4 +77,10 @@ def callback():
         try:
             line_reply(reply_token, ai_reply)
         except Exception as e:
-            print("LINE repl
+            print("LINE reply error:", repr(e))
+    return "OK", 200
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", "10000"))
+    app.run(host="0.0.0.0", port=port)
