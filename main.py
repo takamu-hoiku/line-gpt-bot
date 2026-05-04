@@ -11,6 +11,7 @@ DIFY_API_URL = "https://api.dify.ai/v1/chat-messages"
 
 conversation_ids = {}
 
+
 def line_reply(reply_token: str, text: str) -> None:
     url = "https://api.line.me/v2/bot/message/reply"
     headers = {
@@ -24,6 +25,7 @@ def line_reply(reply_token: str, text: str) -> None:
     res = requests.post(url, headers=headers, json=payload, timeout=10)
     print("LINE reply status:", res.status_code, res.text[:200])
 
+
 def ask_dify(user_id: str, user_text: str) -> str:
     headers = {
         "Authorization": f"Bearer {DIFY_API_KEY}",
@@ -36,15 +38,18 @@ def ask_dify(user_id: str, user_text: str) -> str:
         "conversation_id": conversation_ids.get(user_id, ""),
         "user": user_id,
     }
-    res = requests.post(DIFY_API_URL, headers=headers, json=payload, timeout=30)
+    res = requests.post(DIFY_API_URL, headers=headers, json=payload, timeout=10)
+    print("Dify status:", res.status_code)
     data = res.json()
     print("Dify response:", data)
     conversation_ids[user_id] = data.get("conversation_id", "")
     return data.get("answer", "ごめんね、うまく答えられなかった🙏")
 
+
 @app.get("/")
 def healthcheck():
     return "OK", 200
+
 
 @app.post("/callback")
 def callback():
@@ -61,6 +66,7 @@ def callback():
         reply_token = event.get("replyToken")
         user_id = event.get("source", {}).get("userId", "unknown")
         user_text = message.get("text", "")
+        print("受信メッセージ:", user_text)
         if not reply_token:
             continue
         try:
@@ -71,9 +77,4 @@ def callback():
         try:
             line_reply(reply_token, ai_reply)
         except Exception as e:
-            print("LINE reply error:", repr(e))
-    return "OK", 200
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", "10000"))
-    app.run(host="0.0.0.0", port=port)
+            print("LINE repl
